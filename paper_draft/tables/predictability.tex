@@ -1,0 +1,23 @@
+\begin{table}[t]
+    \centering
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{@{}lcccccccc@{}}
+        \toprule
+        \multirow{2}{*}{\textbf{Pair}} & \multirow{2}{*}{\textbf{top-1 agree}} & \multirow{2}{*}{\textbf{mean KL}} & \multicolumn{3}{c}{\textbf{Baseline} $R^2$ \textbf{(val)}} & \multicolumn{2}{c}{\textbf{\gbt} $R^2$} & \multirow{2}{*}{\textbf{Spearman} $\rho$} \\
+        \cmidrule(lr){4-6} \cmidrule(lr){7-8}
+        & & & pos-only & entropy-only & base-logp-only & val & x-corpus & \\
+        \midrule
+        \qwensmall & 0.829 & 0.207 & 0.015 & 0.196 & 0.398 & \textbf{0.704} & \textbf{0.599} & 0.821 \\
+        \qwenmid   & 0.852 & 0.214 & 0.046 & 0.394 & 0.382 & \textbf{0.693} & \textbf{0.680} & 0.849 \\
+        \qwenbig   & 0.826 & 0.240 & 0.022 & 0.281 & 0.510 & \textbf{0.621} & \textbf{0.626} & 0.885 \\
+        \bottomrule
+    \end{tabular}
+    }
+    \caption{\textbf{Per-token KL is largely predictable from base-side context, and position alone is nearly useless.}
+    Top-1 agreement and mean per-token $\klt$ (nats) measured on \justeval. Predictor $R^2$ on a held-out validation
+    split of \dolly\ (val) and on the disjoint \justeval\ corpus (x-corpus). The gradient-boosted predictor (\gbt)
+    explains $\sim$60--68\% of cross-corpus KL variance, far above every single-feature baseline; position-only
+    regression is near-zero ($R^2 \le 0.05$). Spearman $\rho$ is between predicted and actual KL on \justeval.
+    Best per-row \gbt\ values in \textbf{bold}.}
+    \label{tab:predictability}
+\end{table}

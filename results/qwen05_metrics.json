@@ -1,0 +1,90 @@
+{
+  "pair": "qwen05",
+  "n_train": 111814,
+  "n_analysis": 66382,
+  "top1_agree_train": 0.8349133382224051,
+  "top1_agree_analysis": 0.8290952366605405,
+  "mean_kl_analysis": 0.20721705740780252,
+  "median_kl_analysis": 0.07413867488503456,
+  "baselines": {
+    "position_only": {
+      "val_r2": 0.015425594813028964
+    },
+    "entropy_only": {
+      "val_r2": 0.19551844532879692
+    },
+    "base_logprob_only": {
+      "val_r2": 0.39798032743752376
+    }
+  },
+  "lgbm": {
+    "val_r2": 0.7043017344275513,
+    "val_rmse": 0.35397074221253677,
+    "val_spearman": 0.8321174714197151,
+    "best_iter": 112,
+    "analysis_r2": 0.5994163171276568,
+    "analysis_spearman": 0.8208736982759646,
+    "feature_importance_gain": {
+      "pos": 0.07572512362490977,
+      "base_entropy": 0.4963487452115543,
+      "base_top1_prob": 0.2731793576367007,
+      "base_tok_logprob": 0.6025008855603778,
+      "is_stylistic": 0.010438141222539232,
+      "is_punct": 0.011065732635188064,
+      "is_number": 0.0009554172000368233,
+      "is_wordlead": 0.0036686258263247894,
+      "tok_len": 0.012101124304068622
+    }
+  },
+  "residual_safety_vs_regular": {
+    "mean_resid_safety": 0.13787358686973847,
+    "mean_resid_regular": -0.011708480654494056,
+    "median_resid_safety": 0.006525238852074566,
+    "median_resid_regular": -0.01826247551386477,
+    "mannwhitney_p_greater": 0.0,
+    "rank_biserial": 0.3222345500810724,
+    "n_safety_tokens": 6763,
+    "n_regular_tokens": 59619
+  },
+  "residual_by_tclass": {
+    "kruskal_p": 2.894900020148031e-29,
+    "mean_resid": {
+      "number": -0.0010833852872368724,
+      "punct": -0.00229866365527155,
+      "space": -0.018980103950738163,
+      "stylistic": 0.03337108031396206,
+      "subword": -0.028729273587472095,
+      "word_lead": 0.00608397684964712
+    },
+    "count": {
+      "number": 1931,
+      "punct": 10043,
+      "space": 991,
+      "stylistic": 5786,
+      "subword": 5874,
+      "word_lead": 41757
+    }
+  },
+  "resid_by_posbin": {
+    "0-4": {
+      "mean_resid": 0.0487765317308576,
+      "mean_kl": 0.6830332771799277
+    },
+    "5-9": {
+      "mean_resid": 0.03587040414943502,
+      "mean_kl": 0.2944555173211116
+    },
+    "10-19": {
+      "mean_resid": 0.01652797791426408,
+      "mean_kl": 0.24894209681417712
+    },
+    "20-39": {
+      "mean_resid": 0.001277326284295619,
+      "mean_kl": 0.18063124380273515
+    },
+    "40+": {
+      "mean_resid": -0.01122653466944257,
+      "mean_kl": 0.11988921772022117
+    }
+  }
+}

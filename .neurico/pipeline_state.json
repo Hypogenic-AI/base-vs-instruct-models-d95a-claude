@@ -2,13 +2,33 @@
   "created_at": "2026-06-07T21:12:14.166684",
   "stages": {
     "resource_finder": {
-      "status": "failed",
-      "started_at": "2026-06-07T21:12:14.167040",
-      "completed_at": "2026-06-07T21:12:14.893414",
-      "success": false,
-      "outputs": {}
+      "status": "completed",
+      "started_at": "2026-06-07T21:18:00.503200",
+      "completed_at": "2026-06-07T21:28:33.057183",
+      "success": true,
+      "outputs": {
+        "literature_review": "/workspaces/base-vs-instruct-models-d95a-claude/literature_review.md",
+        "resources_catalog": "/workspaces/base-vs-instruct-models-d95a-claude/resources.md",
+        "papers_dir": "/workspaces/base-vs-instruct-models-d95a-claude/papers",
+        "datasets_dir": "/workspaces/base-vs-instruct-models-d95a-claude/datasets",
+        "code_dir": "/workspaces/base-vs-instruct-models-d95a-claude/code"
+      }
+    },
+    "experiment_runner": {
+      "status": "completed",
+      "started_at": "2026-06-07T21:28:33.057534",
+      "completed_at": "2026-06-07T22:29:26.759747",
+      "success": true,
+      "outputs": {
+        "success": true,
+        "return_code": 0,
+        "elapsed_time": 3653.687947511673,
+        "log_file": "/workspaces/base-vs-instruct-models-d95a-claude/logs/execution_claude.log",
+        "transcript_file": "/workspaces/base-vs-instruct-models-d95a-claude/logs/execution_claude_transcript.jsonl"
+      }
     }
   },
   "current_stage": null,
-  "completed": false
+  "completed": true,
+  "completed_at": "2026-06-07T22:29:26.760501"
 }

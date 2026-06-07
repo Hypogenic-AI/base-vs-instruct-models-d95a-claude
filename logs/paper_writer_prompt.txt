@@ -1,0 +1,840 @@
+You are an academic paper writer. Generate a complete NEURIPS style paper
+based on the experiment results provided.
+
+════════════════════════════════════════════════════════════════════════════════
+                         IMPORTANT: BEFORE YOU START
+════════════════════════════════════════════════════════════════════════════════
+
+Before writing any content, you MUST complete these steps:
+
+1. READ THE SKILL: Review the paper-writer skill at .claude/skills/paper-writer/SKILL.md
+2. READ THE STYLE GUIDE: Study templates/paper_writing/lab_style_guide.md carefully
+3. REVIEW EXAMPLES: Browse paper_examples/ for formatting and language patterns:
+   - Look at sections/1.introduction.tex for language style
+   - Look at tables/*.tex for table formatting
+   - Look at commands/*.tex for macro usage
+4. VERIFY COMMAND TEMPLATES: Command templates (math.tex, general.tex, macros.tex) are pre-copied to paper_draft/commands/
+
+CRITICAL: Reference example papers for FORMATTING and LANGUAGE STYLE only.
+Do NOT copy content, phrasing, or narrative structure from the example papers.
+The examples are in a different research domain - focus only on presentation style.
+
+════════════════════════════════════════════════════════════════════════════════
+                            EXPERIMENT REPORT
+════════════════════════════════════════════════════════════════════════════════
+
+# What's Surprisingly Different Between Base and Instruct Models?
+### Predicting per-token base↔instruct divergence and studying where the predictor is wrong
+
+---
+
+## 1. Executive Summary
+
+**Research question (one sentence).** Where does instruction tuning change a base model's
+next-token distribution in ways a learned predictor *cannot* anticipate from simple
+base-side context — and what kinds of tokens are those?
+
+**Key finding (one sentence).** Most of the per-token KL between a base and its instruct
+model is *predictable* from the base model's own uncertainty (entropy and token-surprise) —
+a gradient-boosted predictor reaches cross-corpus R² ≈ 0.60–0.68 — and the **residual**
+(where the predictor is wrong) is not noise: it concentrates, with high statistical
+significance, on **safety prompts** and on **discourse/structural pivots and
+alignment-injected content** (`If`, `However`, `Additionally`, `Safety`, `guidelines`,
+`assistant`, `Alibaba`, `provide`), i.e. exactly the behaviors post-training installs.
+
+**Practical implication.** The "surprising" part of alignment is *localizable and cheap to
+find*: rank tokens by divergence-prediction residual and you recover refusal-recovery
+pivots, persona/identity injections, and helpfulness framing — without labels. This refines
+the Superficial Alignment Hypothesis: the *average* shift is superficial and predictable
+(base entropy), but the *unpredictable residual* is substantive and alignment-specific.
+
+---
+
+## 2. Research Question & Motivation
+
+The dominant view (Superficial Alignment Hypothesis; LIMA, URIAL) is that
+instruction/alignment tuning mostly changes **style/format**, leaving knowledge intact.
+URIAL's token-distribution-shift analysis supports this: base and aligned models agree on
+the top-1 token ~78% of the time, and the positions that shift are dominated by
+stylistic/discourse tokens and decay with position.
+
+The user's hypothesis goes one step further: **train a model to predict the per-token
+divergence, then look where the predictor is wrong** — the intuition that *systematic,
+learnable* divergence is "boring stylistic alignment," while *unpredictable* divergence is
+where something genuinely surprising happens. **No prior work trains an explicit divergence
+predictor and studies its residuals** (URIAL/proxy-tuning/EFT/Branching-Factor all
+characterize the *average* shift). That residual is this project's object of study.
+
+**Hypotheses.**
+- **H1 (predictability).** Per-token KL(P_inst‖P_base) is largely predictable from base-side
+  context → high predictor R².
+- **H2 (residual is structured).** After subtracting the prediction, the residual is not
+  uniform — it concentrates on identifiable slices.
+- **H3 (residual ≠ generic style).** High-residual tokens are disproportionately
+  safety/refusal/persona/helpfulness pivots, not the generic stylistic tokens that dominate
+  the *predictable* shift.
+
+---
+
+## 3. Experimental Setup
+
+### Models (real model pairs, run locally on GPU)
+Three ungated base/instruct pairs sharing a tokenizer within each pair:
+
+| Pair | Base | Instruct | Params | Vocab |
+|---|---|---|---|---|
+| Qwen2.5-0.5B (primary) | `Qwen/Qwen2.5-0.5B` | `Qwen/Qwen2.5-0.5B-Instruct` | 0.5B | 151,936 |
+| Qwen2.5-1.5B | `Qwen/Qwen2.5-1.5B` | `Qwen/Qwen2.5-1.5B-Instruct` | 1.5B | 151,936 |
+| Qwen2.5-7B | `Qwen/Qwen2.5-7B` | `Qwen/Qwen2.5-7B-Instruct` | 7B | 152,064 |
+
+Loaded in fp16, base on `cuda:0`, instruct on `cuda:1` (4× RTX A6000 48 GB available).
+
+### Per-token divergence measurement
+For each instruction we **generate a greedy response with the instruct model**
+(chat-formatted prompt, `do_sample=False`, ≤80 new tokens). We then **teacher-force the
+identical full token sequence (chat-formatted prompt + response) through *both* models** and,
+at each response position `t`, compute over the full vocabulary:
+
+- **target** `kl = KL(P_inst‖P_base)` (primary); also `base_rank` (URIAL's η) and
+  `logprob_delta = log P_inst(o_t) − log P_base(o_t)` (the EFT/proxy "behavior delta");
+- **base-side features** (the candidate *predictable* structure): response position `pos`,
+  base entropy, base top-1 prob, base log-prob of the emitted token, plus token-class flags
+  (stylistic/punct/number/word-leading) and token length.
+
+Giving **both models the identical chat-formatted context** isolates the weight difference —
+the cleanest measure of distributional divergence (cf. EFT/proxy-tuning, which treat the
+logit difference under a shared context as the behavior signal).
+
+### Predictor & residual protocol (no train/test leakage)
+- **Train** the divergence predictor on **dolly-15k** (clean instructions, `context==""`;
+  1,200–1,500 instructions per pair).
+- **Analyze residuals** on **just-eval-instruct** (URIAL's 1,000-instruction set, tagged by
+  `category` incl. **200 safety prompts**, `task`, `topic`) — a disjoint corpus.
+- **Predictor:** sklearn `HistGradientBoostingRegressor` (gradient-boosted trees, 600 iters,
+  early stopping) on the base-side features. **Baselines:** linear regression on
+  position-only, entropy-only, base-logprob-only.
+- **Residual** = `actual_kl − predicted_kl` on just-eval. Sliced by category (safety vs
+  regular), token class, and position bin.
+
+### Reproducibility
+Seed 42 everywhere; greedy decoding (deterministic). Python 3.12, torch 2.12+cu130,
+transformers 5.10.2, scikit-learn 1.9, datasets 5.0. Hardware: RTX A6000. Total wall-clock
+≈ 35 min (0.5B+1.5B) plus ≈ 15 min (7B incl. download). Per-token tables in
+`results/*_{dolly,justeval}.parquet`; metrics in `results/*_metrics.json`.
+
+---
+
+## 4. Results
+
+### 4.0 Measurement validation (reproduces URIAL stylized facts)
+Top-1 base/instruct agreement is **0.83–0.85** (URIAL reports ~78% on Llama/Mistral);
+mean per-token KL is small (0.21–0.24 nats) and **decays sharply with position** (e.g. 0.5B:
+mean KL 0.68 at positions 0–4 → 0.12 at 40+). See `figures/*_kl_vs_pos.png`. Our measurement
+matches the literature.
+
+### 4.1 H1 — Per-token KL is largely predictable (from base uncertainty, *not* position)
+
+Cross-pair summary (`results/summary_table.csv`):
+
+| Pair | top-1 agree | mean KL | R² pos-only | R² entropy-only | R² base-logp-only | **R² GBT (val)** | **R² GBT (x-corpus)** | Spearman |
+|---|---|---|---|---|---|---|---|---|
+| Qwen2.5-0.5B | 0.829 | 0.207 | 0.015 | 0.196 | 0.398 | **0.704** | **0.599** | 0.821 |
+| Qwen2.5-1.5B | 0.852 | 0.214 | 0.046 | 0.394 | 0.382 | **0.693** | **0.680** | 0.849 |
+| Qwen2.5-7B | 0.826 | 0.240 | 0.022 | 0.281 | 0.510 | **0.621** | **0.626** | 0.885 |
+
+- The gradient-boosted predictor explains **~60–68%** of per-token KL variance on a **disjoint
+  corpus**, with Spearman ρ(pred, actual) **0.82–0.89**. **H1 supported.**
+- **Position alone is nearly useless** (R² 0.02–0.05). The predictable structure is the
+  base model's own uncertainty: permutation importance (drop in R²) is dominated by
+  `base_tok_logprob` and `base_entropy` (≈0.4–0.6 each), with `pos` ≈0.02–0.08 and all
+  stylistic/lexical flags <0.02. This **refines URIAL**: the famous "KL decays with
+  position" is mostly *mediated by entropy decay*, not position per se.
+  (`figures/*_featimp.png`, `*_calibration.png`.)
+
+### 4.2 H2 — The residual is structured, not noise
+Kruskal–Wallis across token classes is hugely significant for every pair (p < 1e-22).
+Residual also varies systematically with position bin even though position is a predictor
+feature (the predictor under-predicts early-position divergence). **H2 supported.**
+
+### 4.3 H3 — The residual is alignment-specific (safety + pivots), not generic style
+
+**Safety vs regular prompts** (Mann–Whitney one-sided, residual on just-eval):
+
+| Pair | mean resid (safety) | mean resid (regular) | rank-biserial | p |
+|---|---|---|---|---|
+| Qwen2.5-0.5B | **+0.138** | −0.012 | 0.322 | ≈ 0 |
+| Qwen2.5-1.5B | **+0.085** | −0.015 | 0.302 | 3e-284 |
+| Qwen2.5-7B | **+0.061** | −0.012 | 0.141 | 2e-164 |
+
+Safety prompts are **where the predictor most under-estimates divergence**, in all three
+pairs (small-to-medium effect; the effect shrinks with scale — larger models' safety
+behavior is somewhat *more* predictable, but remains highly significant).
+See `figures/*_resid_category.png` and `figures/summary_across_pairs.png`.
+
+**Which token strings are most over-divergent** (mean residual, n≥5; `results/*_residual_tokens.csv`):
+
+- **0.5B:** `Additionally`, `politics`, `sex`, `inquiries`, `If`, `answers`, `violence`,
+  `encourage`, `topics`, `I`, `However`, `political`, `distress` …
+- **7B:** `Safety`, `Such`, `assistant`, `guidelines`, `If`, `discuss`, `planning`,
+  `Alibaba`, `Specifically`, `October`, `Instead`, `provide`, `recommend` …
+
+Two interpretable families emerge — **neither is the generic stylistic token the
+*predictable* shift is made of:**
+
+1. **Discourse/structural pivots at clause boundaries** — the aligned model commits to a
+   structured, helpful continuation far more sharply than base entropy/surprise predicts:
+   - 0.5B: *"…won't assist with that request. **[If]** you have…"* (KL 19.9, base ranks `If`
+     only 3rd) — a **refusal-recovery pivot**.
+   - 0.5B: *"…about the weather in London. **[Additionally]**, you…"*; *"…academic context.
+     **[The]** phrase…"* (sentence/list openers).
+   - 7B: *"…built-in clock functionality. **[If]** you need…"*; *"…distinctive appearance.
+     **[However]**, it…"*; *"…the reaction. **[For]** example:"* — helpful follow-up pivots.
+2. **Safety / persona / identity / helpfulness injections** — explicit post-training content:
+   `Safety`, `guidelines`, `assistant`, **`Alibaba`** (Qwen's maker — *identity injection*),
+   `October` (knowledge-cutoff framing), `provide`/`recommend`/`discuss` (helpfulness verbs),
+   and sensitive-topic words (`sex`, `violence`, `politics`, `distress`).
+
+**H3 supported:** the unpredictable residual recovers exactly the behaviors alignment
+installs (refusal recovery, helpful structure, persona/identity, safety framing), not the
+generic `However/Here` style tokens that the predictor already accounts for.
+
+Raw artifacts: `results/*_residual_top.csv` (top individual tokens with context-locatable
+`example_id`/`pos`), `results/*_residual_tokens.csv` (aggregated by token string).
+
+---
+
+## 5. Analysis & Discussion
+
+- **The hypothesis holds.** "Where the divergence predictor is wrong" is indeed "where the
+  interesting stuff is": refusal-recovery, persona/identity, and helpfulness-structure
+  pivots, plus a significant safety-prompt concentration — surfaced with **no labels**,
+  purely from prediction residuals.
+- **Refinement of the Superficial Alignment Hypothesis.** The *bulk* of the base→instruct
+  KL is explained by the base model's own uncertainty (entropy/token-surprise): where the
+  base is unsure, alignment sharpens — consistent with Branching-Factor's "alignment
+  surfaces latent low-entropy paths." Position is almost irrelevant once entropy is known.
+  The *residual* is the genuinely non-superficial part, and it is alignment-specific.
+- **Refusal-recovery pivots** are a clean qualitative discovery: right after a refusal, the
+  instruct model deterministically emits boilerplate ("If you have any other questions…")
+  that the base model assigns low rank — a high-KL, high-residual signature of RLHF/SFT
+  templating.
+- **Scale trend.** The safety residual effect shrinks 0.32 → 0.30 → 0.14 from 0.5B → 7B:
+  larger instruct models integrate safety behavior more smoothly (more predictable from
+  context), though it remains overwhelmingly significant. Predictor R² is stable (~0.6–0.7).
+- **Effect sizes & significance.** All headline effects are statistically significant with
+  reported effect sizes (rank-biserial), on a corpus disjoint from training, replicated
+  across three model scales — not a single-model or p-hacked artifact.
+
+---
+
+## 6. Limitations
+
+- **Sequence choice.** We score the *instruct model's own greedy decode*; that text is
+  in-distribution for the instruct model, which can inflate KL on instruct-preferred tokens
+  (a known URIAL confound). We mitigate by using a shared context and by analyzing
+  *residuals* (position/entropy-adjusted), but scoring base-decoded or reference sequences
+  would be a stronger control (left to future work).
+- **`base_tok_logprob` as a feature** is informative-by-construction (a token the base finds
+  unlikely tends to diverge); we keep it because it *is* legitimate base-side predictable
+  structure, and the residual is defined relative to the *best* such predictor. Excluding it
+  only raises the residual, never the reverse.
+- **Token-class proxy for POS.** We use lightweight token-class flags rather than true POS
+  tagging (subword tagging is noisy); the qualitative families are read from token strings.
+- **Model family.** All pairs are Qwen2.5 (RLHF/DPO-aligned). Gated SFT-only pairs
+  (Mistral-7B-v0.1, Llama-2-chat) were not downloadable without an HF token, so we could not
+  cleanly separate SFT-only vs RLHF effects; scale (0.5B→7B) is covered instead.
+- **Greedy, ≤80 tokens.** Short greedy responses; longer/sampled generations and other
+  decoding settings are untested.
+
+---
+
+## 7. Conclusions & Next Steps
+
+**Answer to the research question.** Per-token base→instruct divergence is mostly a
+*predictable* function of the base model's own uncertainty (R²≈0.6–0.68; position barely
+matters). The **unpredictable residual** — where a divergence predictor is wrong — is *not*
+noise: it concentrates, significantly and across three model scales, on **safety prompts**
+and on **discourse/structural pivots and alignment-injected content** (refusal-recovery
+boilerplate, persona/identity such as `Alibaba`, helpfulness verbs, safety framing). The
+user's intuition is confirmed: the residual is where the genuinely alignment-specific,
+non-superficial behavior lives.
+
+**Next steps.** (1) Score base-decoded and reference sequences to remove the
+which-model-generated confound; (2) add an SFT-only pair (with HF access) to separate SFT vs
+RLHF residual signatures; (3) train a *residual* probe on base hidden states + logit-lens
+attribution (LogitLens4LLMs) to mechanistically localize where residual tokens are decided;
+(4) use the residual as an *unsupervised detector* of refusal/persona/safety tokens and
+validate against labels.
+
+---
+
+## References (used)
+- Lin et al. 2023, **URIAL: The Unlocking Spell on Base LLMs**, arXiv:2312.01552 (token
+  distribution shift; just-eval-instruct).
+- Yang, Li, Holtzman 2026, **LLM Probability Concentration / Branching Factor**,
+  arXiv:2506.17871 (alignment sharpens distribution).
+- Liu et al. 2024, **Tuning Language Models by Proxy**, arXiv:2401.08565 (logit-difference
+  behavior signal).
+- Mitchell et al. 2023, **Emulated Fine-Tuning**, arXiv:2310.12962 (behavior delta = log
+  π_inst − log π_base).
+- Zhou et al. 2023, **LIMA**, arXiv:2305.11206 (Superficial Alignment Hypothesis).
+- **Revisiting the Superficial Alignment Hypothesis** 2024, arXiv:2410.03717 (counter-evidence).
+- Datasets: `re-align/just-eval-instruct`; `databricks/databricks-dolly-15k`.
+- Models: `Qwen/Qwen2.5-{0.5B,1.5B,7B}` and `-Instruct`.
+
+
+════════════════════════════════════════════════════════════════════════════════
+                            RESEARCH PLAN
+════════════════════════════════════════════════════════════════════════════════
+
+# Planning: What's Surprisingly Different Between Base and Instruct Models?
+
+## Motivation & Novelty Assessment
+
+### Why This Research Matters
+Understanding *what* instruction/alignment tuning actually changes in a pretrained model is
+central to interpretability, alignment safety, and cheap-alignment methods (proxy-tuning,
+URIAL). The dominant view (Superficial Alignment Hypothesis) says alignment mostly changes
+*style/format*. If true, the base→instruct distributional shift should be highly
+**predictable** from simple context features. The scientifically interesting question is
+therefore not the average shift but its **unpredictable residual**: the tokens where
+alignment does something a simple model of "stylistic shift" cannot anticipate. Those are
+candidates for genuine, non-superficial behavioral change (safety pivots, reasoning forks,
+factual commitments).
+
+### Gap in Existing Work
+URIAL, proxy-tuning, EFT, and Branching-Factor all characterize the *average / predictable*
+shift: KL decays with position, shifts concentrate on stylistic/discourse/refusal tokens,
+alignment lowers entropy. **No prior work trains an explicit divergence predictor and
+studies its errors.** The residual is unexplored territory — exactly what the user asked
+for.
+
+### Our Novel Contribution
+1. Operationalize per-token base↔instruct divergence (KL, base-rank, log-prob delta) at
+   scale on real model pairs.
+2. Train an explicit **divergence predictor** from base-side context features and quantify
+   how predictable the shift is (R²).
+3. Define and characterize the **residual** (|actual − predicted| KL): where the predictor
+   is wrong, sliced by category (incl. safety), POS/token class, and position.
+4. Cross-check across model scale (0.5B → 7B) and alignment type (RLHF/DPO vs SFT-only).
+
+### Experiment Justification
+- **Exp 1 — Measure divergence.** Reproduce the URIAL-style per-token KL/base-rank profile
+  for a real pair (validates our measurement against known results: top-1 agreement ≈78%,
+  KL decays with position). Without this we cannot trust the predictor target.
+- **Exp 2 — Train predictor & quantify predictability.** Fit baselines (position-only,
+  entropy-only) and a gradient-boosted predictor on base-side features. Tells us *how much*
+  of the shift is "boring/predictable." A strong-but-imperfect R² is the precondition for
+  the residual being meaningful.
+- **Exp 3 — Residual analysis (the core).** Rank tokens by residual; test whether residuals
+  concentrate on specific categories (safety), token classes, and positions. This directly
+  answers "where is the interesting stuff."
+- **Exp 4 — Robustness.** Replicate the predictor + residual structure on a larger Qwen
+  pair and an SFT-only pair (Mistral-7B-v0.1) to show findings are not a 0.5B / RLHF
+  artifact.
+
+## Research Question
+Where does instruction tuning change a base model's next-token distribution in ways that a
+learned predictor of the divergence *cannot* anticipate from simple context features — and
+what kinds of tokens/contexts are those residuals?
+
+## Hypothesis Decomposition
+- **H1 (predictability).** Per-token KL(P_inst‖P_base) is largely predictable from base-side
+  context (position, base entropy, base-prob of the token): predictor R² is high.
+- **H2 (residual is structured, not noise).** After subtracting the prediction, the residual
+  is *not* uniformly distributed: it concentrates on identifiable slices.
+- **H3 (residual ≠ stylistic).** High-residual tokens are disproportionately at
+  safety/refusal pivots and content-commitment points, not the generic stylistic tokens
+  (`However`, `Here`) that dominate the *predictable* shift.
+
+## Proposed Methodology
+
+### Approach
+For each instruction, generate a response with the **instruct** model (greedy). Teacher-force
+that identical token sequence through **both** base and instruct models under the **same
+chat-formatted context** (both models see identical tokens — isolates the weight difference,
+the cleanest measure of distributional divergence). At each response position compute:
+- target: `KL(P_inst‖P_base)` (primary), plus base-rank η and log-prob delta (cross-check);
+- base-side features: response-position index, base entropy, base top-1 prob, base-prob &
+  base-rank of the emitted token, token-identity/POS/is-stylistic flags.
+Train a predictor of KL from base-side features on **dolly-15k**; analyze residuals on
+**just-eval-instruct** (rich tags incl. 200 safety prompts) → no train/test leakage.
+
+### Experimental Steps
+1. Validate measurement (Exp 1) on Qwen2.5-0.5B pair: top-1 agreement, KL-vs-position decay.
+2. Build per-token feature table for dolly (train) and just-eval (analysis).
+3. Fit predictors: position-only, entropy-only, base-prob-only (baselines) + LightGBM
+   (all base-side features). Report held-out R²/MSE (Exp 2).
+4. Residual = actual − LightGBM-predicted KL on just-eval. Rank, slice by category/POS/
+   position; statistical tests (Exp 3).
+5. Replicate Exp 2–3 on Qwen2.5-7B (scale) and Mistral-7B-v0.1 (SFT-only) pairs (Exp 4).
+
+### Baselines
+- Predictor baselines: position-only, base-entropy-only, base-prob-only regressors (these
+  encode the "known" predictable structure from URIAL/Branching-Factor). LightGBM must beat
+  them for the features to matter; the residual is defined relative to the best predictor.
+- Divergence baseline sanity: URIAL's reported ~78% top-1 agreement / KL-position decay.
+
+### Evaluation Metrics
+- Divergence: KL(P_inst‖P_base), top-1 agreement, base-rank, log-prob delta.
+- Predictor: held-out R², MSE, Spearman ρ(pred, actual).
+- Residual: distribution of |actual−predicted|; mean residual per slice; Kruskal–Wallis
+  across categories; bootstrap 95% CIs; effect sizes (rank-biserial / Cliff's δ).
+
+### Statistical Analysis Plan
+α = 0.05. Train/analysis on disjoint corpora. Predictor evaluated on held-out tokens.
+For residual-by-slice: Kruskal–Wallis omnibus + Mann–Whitney (safety vs regular) with
+bootstrap CIs and effect size. Control for position (residual is already position-adjusted
+because position is a predictor feature, but we also report residual within position bins).
+Seeds fixed (42). Greedy decoding (temperature 0) for determinism.
+
+## Expected Outcomes
+- H1 supported if LightGBM R² ≳ 0.5 (much of KL is predictable).
+- H2 supported if residual variance differs significantly across slices.
+- H3 supported if safety prompts / specific token classes show significantly higher residual
+  than generic stylistic tokens.
+- Refutation: residual is uniform noise (no slice structure) → "surprising" divergence is
+  just estimation noise.
+
+## Timeline and Milestones
+1. Env + model load + measurement validation (Exp 1) — 30 min.
+2. Feature extraction over corpora — 45 min.
+3. Predictor + residual analysis + figures (Exp 2–3) — 45 min.
+4. Robustness pairs (Exp 4) — 45 min.
+5. Documentation (REPORT.md, README.md) — 30 min.
+
+## Potential Challenges
+- **Vocab/tokenizer mismatch** → assert equal vocab per pair; KL only over shared vocab.
+- **Position confound** (KL decays with position) → include position as a predictor feature
+  and report residuals within position bins.
+- **Which sequence to score** (confound: instruct-generated text is in-distribution for
+  instruct) → primary uses instruct greedy decode under identical context; robustness check
+  scores dolly reference responses.
+- **Compute / storage** → compute KL on-GPU per position, store only scalars+features.
+- **POS tagging** → NLTK averaged_perceptron_tagger on decoded token strings (approx).
+
+## Success Criteria
+A working, validated per-token divergence measurement (matches URIAL stylized facts); a
+predictor with reported R² and baselines; and a residual analysis with statistically tested
+slice structure and concrete example tokens — delivered in REPORT.md across ≥2 model pairs.
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          LITERATURE REVIEW
+════════════════════════════════════════════════════════════════════════════════
+
+# Literature Review: What's Surprisingly Different Between Base and Instruct Models?
+
+**Research hypothesis.** Take a base and an instruct model, measure their per-token
+distributional divergence (e.g., KL) across positions, train a model to *predict* that
+divergence from context, and study the positions where the **predictor is wrong** — the
+intuition being that systematic, learnable divergence is "boring stylistic alignment,"
+while *unpredictable* divergence is where something genuinely surprising happens.
+
+---
+
+## Research Area Overview
+
+There is a now-substantial line of work characterizing how instruction/alignment tuning
+(SFT and/or RLHF) changes a pretrained base model. The dominant empirical finding is the
+**Superficial Alignment Hypothesis**: alignment mostly changes *style/format and
+safety behavior*, while knowledge and reasoning come from pre-training. The strongest
+direct evidence is **token distribution shift** analysis (URIAL): base and aligned models
+agree on the top token at ~78% of positions (~92% within top-3), and the positions that
+*do* shift are dominated by stylistic/discourse/refusal tokens, concentrated early in the
+response, and shrinking in KL as decoding proceeds.
+
+Three methodological threads make the per-token divergence *operational*:
+1. **Distribution-shift analysis** (URIAL) — KL / base-rank / base-prob per position.
+2. **Logit-difference methods** (proxy-tuning, EFT, contrastive decoding) — treat
+   `log π_instruct − log π_base` as a usable signal (a "behavior delta" / implicit reward).
+3. **Information-theoretic concentration** (Branching Factor) — alignment *sharpens* the
+   distribution (lower entropy/BF), surfacing low-entropy paths already latent in the base.
+
+The hypothesis sits squarely on top of thread (1)+(2): the per-token KL/delta is the
+prediction *target*; the open question — under-explored in the literature — is what the
+**residual** (unpredictable divergence) looks like.
+
+---
+
+## Key Papers
+
+### Paper 1: URIAL — The Unlocking Spell on Base LLMs (Lin et al., 2023; arXiv 2312.01552)  ⭐
+- **Key contribution**: Direct evidence for superficial alignment via *token distribution
+  shift*; plus a tuning-free alignment method (URIAL) using ICL.
+- **Methodology**: Decode the **aligned** model greedily to get response `o`. At each
+  position `t`, feed the same prefix to the **base** model and rank `o_t` under `P_base`
+  (the *base-rank* η). Buckets: **unshifted** (η=1), **marginal** (1<η≤3), **shifted**
+  (η>3). Metrics per position: KL(P_align‖P_base), base-rank, base-prob of the aligned
+  token.
+- **Datasets**: `just-eval-instruct` (1,000 instructions from 9 sources), introduced here.
+- **Models**: Llama-2-7b/-chat (RLHF), Llama-2-7b/Vicuna-7b (SFT), Mistral-7b/-Instruct.
+- **Results**: ~77.7% unshifted, ~92.2% within top-3; shifted tokens are stylistic
+  (`However`, `cannot`, `Here`, `Thank`, `Remember`, refusals). KL and base-rank **decay
+  with position**. URIAL (3 ICL examples + system prompt) matches/beats SFT(+RLHF).
+- **Relevance**: Defines the exact divergence measurement and the prompt set. The
+  decay-with-position and the stylistic-token concentration are precisely the *predictable*
+  structure a divergence predictor will learn — so residuals are "everything not explained
+  by position + stylistic-token identity."
+
+### Paper 2: LLM Probability Concentration / Branching Factor (Yang, Li, Holtzman, UChicago, 2026; arXiv 2506.17871)  ⭐
+- **Key contribution**: **Branching Factor (BF)** = length-normalized exponentiated entropy
+  (effective # of plausible next tokens); a token-invariant concentration metric.
+- **Methodology**: Estimate BF from naturally sampled sequences (entropy-rate). Compare
+  base vs aligned; track BF over position; "nudging" = prefix a base model with an
+  aligned-style token (e.g., "Sure,").
+- **Results**: Alignment cuts BF 2–5× (up to 12→1.2 at start); BF declines over a
+  generation; nudging a base model reproduces the drop ⇒ alignment *surfaces latent
+  low-entropy paths* rather than reshaping the manifold.
+- **Relevance**: (a) BF/entropy is a strong **feature** and an alternative **target** for
+  the predictor; (b) explains *why* divergence is largest early (high base entropy →
+  room to shift); (c) same lab/affiliation as the user — methods and codebase are directly
+  reusable.
+
+### Paper 3: Tuning Language Models by Proxy (Liu et al., COLM 2024; arXiv 2401.08565)  ⭐
+- **Key contribution**: `proxy-tuning` — steer a base model with the **logit difference**
+  `(s_smallchat − s_smallbase)` added to `s_base` (DExperts form).
+- **Results**: Closes 88–91% of base→chat gap; **§6.1**: the offset most promotes
+  *reasoning and stylistic* tokens, not knowledge.
+- **Relevance**: Cleanest code/operationalization of the per-token divergence as a logit
+  offset; §6.1 is the closest existing "which tokens diverge" analysis.
+
+### Paper 4: Emulated Fine-Tuning (Mitchell et al., 2023; arXiv 2310.12962)  ⭐
+- **Key contribution**: Factorize a fine-tuned model as `base log-probs + behavior delta`,
+  with **behavior delta = log π_instruct − log π_base**; framed as KL-constrained RL so the
+  delta is an implicit reward / log-importance weight.
+- **Results**: Pre-training scale → factuality; fine-tuning scale → helpfulness; "up-scaling"
+  ensembles small-instruct + large-base.
+- **Relevance**: Gives a principled identity for the prediction target and a reason the
+  delta should be *low-complexity and predictable* most of the time.
+
+### Paper 5: LIMA (Zhou et al., 2023; arXiv 2305.11206)
+- Origin of the Superficial Alignment Hypothesis (1k SFT examples suffice). The claim
+  URIAL tests; sets the prior that base↔instruct differences are mostly format/style.
+
+### Paper 6: Revisiting the Superficial Alignment Hypothesis (2024; arXiv 2410.03717)
+- **Counter-evidence**: post-training adds capability and scales with data, not purely
+  style. Important caveat: the *surprising* (residual) divergence may be substantive, not
+  noise — supports the hypothesis's premise that residuals are where the interesting stuff is.
+
+### Paper 7: Is ICL Sufficient for Instruction Following? (2024; arXiv 2405.19874)
+- ICL-only alignment (URIAL-style) still lags real SFT on harder cases ⇒ the divergence
+  is not *entirely* superficial; bounds what a "predictable" model can capture.
+
+### Paper 8: Shadow-FT (2025; arXiv 2505.12716)
+- The base↔instruct **weight delta** is transferable across paired models ⇒ the divergence
+  is structured/low-rank-ish, reinforcing predictability of the bulk of it.
+
+### Paper 9: Contrastive Decoding Improves Reasoning (O'Brien & Lewis, 2023; arXiv 2309.09117)
+- Decode on expert−amateur log-prob difference; methodological sibling for using divergence.
+
+### Paper 10: DoLa — Decoding by Contrasting Layers (Chuang et al., 2023; arXiv 2309.03883)
+- Within-model layer contrast; relevant to *where* in the network divergence localizes.
+
+### Paper 11: LogitLens4LLMs (2025; arXiv 2503.11667)
+- Logit-lens tooling for modern LLMs — for interpreting residual (predictor-wrong) tokens
+  via layer-wise attribution.
+
+---
+
+## Common Methodologies
+- **Per-position distribution comparison** between paired models (URIAL): KL, base-rank,
+  base-prob. *Used in:* URIAL; reusable as the prediction target.
+- **Logit/log-prob difference** as a behavior signal (EFT, proxy-tuning, contrastive
+  decoding). *Used in:* Papers 3, 4, 9.
+- **Entropy / concentration metrics** (Branching Factor, semantic entropy). *Used in:* Paper 2.
+- **Token-bucket / token-identity analysis** of *which* tokens shift. *Used in:* URIAL §2,
+  proxy-tuning §6.1.
+
+## Standard Baselines (for a divergence predictor)
+- **Position-only baseline**: predict KL from token index (URIAL shows KL ≈ monotone decay).
+- **Entropy/BF baseline**: base-model entropy at the position strongly predicts how much
+  room there is to shift (Paper 2).
+- **Token-identity / POS baseline**: stylistic vs content token features (URIAL, proxy §6.1).
+- **Surprisal of the instruct token under the base model** (base-prob) — near-trivial
+  predictor of base-rank.
+A good predictor combines position + base-entropy + local lexical/POS features; the
+*residual after these* is the project's object of study.
+
+## Evaluation Metrics
+- For the divergence itself: **KL(P_inst‖P_base)** (primary), symmetric/JS KL, **base-rank**
+  (η), base-prob, top-1 agreement rate, Branching-Factor ratio.
+- For the predictor: MSE / R² on held-out tokens, calibration of predicted vs actual KL.
+- For residual analysis: rank tokens by |actual − predicted|; aggregate residuals by
+  `category`/`task`/`topic` (just-eval-instruct), by POS/token class, by position bin.
+
+## Datasets in the Literature
+- **just-eval-instruct** (URIAL) — 1,000 tagged instructions; the canonical set for this
+  exact analysis. *(Downloaded.)*
+- **AlpacaEval, MT-bench, LIMA** — components of just-eval-instruct; used broadly.
+- **databricks-dolly-15k** — larger, category-tagged instruction set. *(Downloaded.)*
+- Benchmark suites (knowledge/reasoning/safety: MMLU, GSM8K, TruthfulQA, ToxiGen) appear
+  in proxy-tuning/EFT for *downstream* evaluation, not per-token divergence.
+
+## Gaps and Opportunities
+- **The residual is unexplored.** Existing work characterizes the *average/predictable*
+  shift (decay with position, stylistic tokens, entropy drop). No paper trains an explicit
+  divergence *predictor* and studies its **errors**. This is the project's novel contribution.
+- **Surprising ≠ stylistic.** Paper 6/7 show real capability changes; the residual may
+  concentrate on (a) safety/refusal trigger points, (b) reasoning-pivot tokens, (c)
+  factual commitments where instruct/base disagree — all candidates for "interesting stuff."
+- **Mechanistic attribution** of residual tokens (logit lens / layer contrast) is open.
+
+## Recommendations for Our Experiment
+- **Datasets**: train the predictor on `dolly-15k` (volume), analyze residuals on
+  `just-eval-instruct` (rich tags incl. safety) — avoids leakage and gives slicing handles.
+- **Model pairs**: start with `Qwen2.5-0.5B` / `-0.5B-Instruct` (ungated, shared tokenizer,
+  cheap); confirm trends on `Mistral-7B-v0.1`/`-Instruct-v0.1` (SFT, used by URIAL) and, if
+  access permits, `Llama-2-7b`/`-chat` (SFT+RLHF) to separate SFT vs RLHF effects.
+- **Targets**: primary KL(P_inst‖P_base); also base-rank and log-prob delta (cross-check).
+- **Predictor features (the "predictable" baseline to subtract out)**: position index,
+  base-model entropy/BF at the position, base-prob of the instruct token, local n-gram /
+  POS / is-stylistic-token flags, maybe a small probe on base hidden states.
+- **Residual analysis**: rank by |actual−predicted| KL; aggregate by category/task/topic,
+  POS/token-class, position bin; inspect top-residual tokens with logit-lens
+  (LogitLens4LLMs) and proxy-tuning S6.1-style token attribution.
+- **Methodological care**: ensure identical tokenizer/vocab; decide whose response to score
+  (URIAL scores the *instruct* greedy decode — consider also scoring base decodes and a
+  shared third sequence to avoid which-model-generated confounds); KL decays strongly with
+  position, so *always* control for position before claiming a token is "surprising."
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          PAPER REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+Generate a complete academic paper with the following structure:
+
+1. TITLE
+   - Clear, specific, informative
+   - Should convey main finding or contribution
+
+2. AUTHOR
+   - Use this exact author line in the \author{} block: Ari Holtzman and NeuriCo
+
+3. ABSTRACT (150-250 words)
+   - Problem statement
+   - Approach
+   - Key results
+   - Significance
+
+4. INTRODUCTION
+   - Research problem and motivation
+   - Gap in existing work
+   - Our contribution (be specific)
+   - Paper organization
+
+5. RELATED WORK
+   - Organized by theme/approach
+   - Position our work relative to prior work
+   - Cite papers from literature review
+
+6. METHODOLOGY
+   - Clear description of approach
+   - Experimental setup
+   - Datasets used
+   - Evaluation metrics
+   - Baselines
+
+7. RESULTS
+   - Present results with tables and figures
+   - Statistical analysis
+   - Comparison to baselines
+   - Ablation studies (if applicable)
+
+8. DISCUSSION
+   - Interpretation of results
+   - Limitations
+   - Broader implications
+
+9. CONCLUSION
+   - Summary of contributions
+   - Key findings
+   - Future work
+
+10. REFERENCES
+   - BibTeX format
+   - All cited papers
+
+════════════════════════════════════════════════════════════════════════════════
+                          OUTPUT FORMAT
+════════════════════════════════════════════════════════════════════════════════
+
+Create a MODULAR LaTeX project with the following directory structure:
+
+paper_draft/
+├── main.tex              # Main file that imports all sections
+├── references.bib        # BibTeX references
+├── sections/
+│   ├── abstract.tex      # Abstract content
+│   ├── introduction.tex  # Introduction section
+│   ├── related_work.tex  # Related work section
+│   ├── methodology.tex   # Methodology section
+│   ├── results.tex       # Results section
+│   ├── discussion.tex    # Discussion section
+│   └── conclusion.tex    # Conclusion section
+├── figures/              # Directory for any generated figures
+├── tables/               # Directory for complex standalone tables
+└── appendix/             # Directory for appendix sections (if needed)
+
+INSTRUCTIONS:
+1. First, create the directory structure above (mkdir -p paper_draft/sections paper_draft/figures paper_draft/tables paper_draft/appendix)
+2. Write main.tex using the EXACT preamble for NEURIPS:
+
+   \documentclass{article}
+   \usepackage[final]{neurips_2025}  % NEURIPS style (neurips_2025.sty is in paper_draft/)
+   \usepackage[hidelinks]{hyperref}  % REQUIRED: clickable links
+   \usepackage{booktabs}  % REQUIRED: professional tables
+   \usepackage{graphicx}
+   \usepackage{amsmath,amssymb}
+
+   % Import command files
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+   % Use this bibliography style:
+   \bibliographystyle{plainnat}
+
+   \author{Ari Holtzman and NeuriCo}
+
+   - Use \input{sections/...} to include each section
+   - Use \bibliography{references} for references
+3. Write each section file with COMPLETE content (no placeholders)
+4. Each section file should include its \section{} command
+5. Write references.bib with all citations in BibTeX format
+6. After writing all files, compile the paper:
+   cd paper_draft && pdflatex -interaction=nonstopmode main.tex && bibtex main && pdflatex -interaction=nonstopmode main.tex && pdflatex -interaction=nonstopmode main.tex
+
+This modular structure allows humans to easily:
+- Edit individual sections without navigating a large file
+- Track changes per section
+- Reuse sections across different paper versions
+
+════════════════════════════════════════════════════════════════════════════════
+                          QUALITY REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+- Academic tone throughout
+- All claims must be supported by data from the experiment report
+- Proper citations using \cite{} commands
+- Clear figures and tables with proper captions
+- NO placeholder text - every section must have real content
+- The paper MUST compile without errors
+- If compilation fails, debug and fix the LaTeX errors
+
+════════════════════════════════════════════════════════════════════════════════
+                          LAB WRITING STYLE
+════════════════════════════════════════════════════════════════════════════════
+
+Follow these lab-specific conventions to match our paper style:
+
+1. LANGUAGE STYLE:
+   - Use active voice: "We propose", "We examine", "We focus on"
+   - Be direct and confident: "Our main question is...", "We hypothesize that..."
+   - State things clearly and simply - prefer plain language over jargon
+   - Use bold questions as paragraph organizers: {\bf what is X?}
+   - Include specific quantitative claims: "8.97% over baseline"
+   - Avoid fancy wording: "utilize" → "use", "facilitate" → "help"
+
+2. INTRODUCTION STRUCTURE:
+   - Engaging hook (get to the point quickly)
+   - Problem importance
+   - Gap identification
+   - Your approach with method figure reference
+   - Quantitative preview of results
+   - Contribution bullets (3-4 items, action verbs)
+
+3. CONTRIBUTION LISTS:
+   \begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+       \item We propose...
+       \item We conduct...
+       \item We complement...
+   \end{itemize}
+
+4. MODULAR COMMANDS STRUCTURE:
+   Command templates are pre-copied to paper_draft/commands/:
+   - math.tex: Math notation macros
+   - general.tex: Formatting macros
+   - macros.tex: Project-specific term definitions (customize this for your paper)
+
+   In main.tex, include:
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+5. REFERENCE CONVENTIONS:
+   Use reference macros from math.tex:
+   - \figref{fig:name} for "figure 1" (lowercase, in-sentence)
+   - \Figref{fig:name} for "Figure 1" (capitalized, start of sentence)
+   - \secref{sec:name} for "section 2"
+
+6. TEXT FORMATTING:
+   - Use \para{Header text} for bold paragraph headers
+   - Define method/dataset names with \textsc and \xspace:
+     \newcommand{\methodname}{\textsc{MethodName}\xspace}
+
+7. TABLE FORMATTING:
+   - Use booktabs package (no vertical lines)
+   - Use \resizebox{\textwidth}{!}{...} for wide tables
+   - Use @{} to remove padding at table edges
+   - Use \cmidrule(lr){x-y} for sub-headers
+   - Use \textsc{} for dataset/method names in headers
+   - Bold best results with {\bf ...}
+
+8. FIGURE FORMATTING:
+   - Use 0.32\textwidth for 3-column subfigures
+   - Use 0.95\linewidth for full-width figures
+   - Use \input{figures/legend} for shared legends
+   - Write self-contained captions explaining key observations
+
+9. RESULTS PRESENTATION:
+   - Define \increase and \decrease for colored arrows (green up, red down)
+   - Bold best results in tables
+   - Report confidence intervals when available
+
+10. ALGORITHM STYLING:
+    - Use algpseudocode with [noend]
+    - Use \triangleright for comments
+
+11. HYPERLINKS (REQUIRED):
+    - Always use \usepackage[hidelinks]{hyperref} or with colored links
+    - All citations, section refs, figure refs, table refs must be clickable
+    - This is essential for reader navigation
+
+════════════════════════════════════════════════════════════════════════════════
+                          WORKFLOW: REVIEW AND REFLECT
+════════════════════════════════════════════════════════════════════════════════
+
+Before calling finish, you MUST complete these review steps:
+
+1. REVIEW RESOURCES (at the start):
+   - Read .claude/skills/paper-writer/SKILL.md for detailed guidance
+   - Study templates/paper_writing/lab_style_guide.md for style conventions
+   - Browse paper_examples/ for formatting and language patterns
+
+2. SELF-REFLECTION (before finishing):
+   After writing all sections, review your work against these criteria:
+
+   LANGUAGE CHECK:
+   - [ ] Is the writing clear and jargon-free?
+   - [ ] Are claims specific with quantitative support?
+   - [ ] Is active voice used throughout?
+
+   FORMATTING CHECK:
+   - [ ] Does main.tex include \input{commands/math}, \input{commands/general}, \input{commands/macros}?
+   - [ ] Is hyperref package included for clickable references?
+   - [ ] Do tables use booktabs (no vertical lines)?
+   - [ ] Are best results bolded in tables?
+   - [ ] Are figures/tables properly captioned?
+
+   STRUCTURE CHECK:
+   - [ ] Does introduction follow: hook → importance → gap → approach → preview → contributions?
+   - [ ] Are contribution bullets specific with action verbs?
+   - [ ] Does the paper compile without errors?
+
+3. FIX ISSUES:
+   - Address any issues found in the self-reflection
+   - Re-compile and verify the PDF looks correct
+
+Only after completing this review should you consider the paper finished.

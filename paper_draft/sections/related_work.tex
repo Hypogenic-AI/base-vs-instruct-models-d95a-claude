@@ -1,0 +1,83 @@
+\section{Related Work}\label{sec:related}
+
+\para{The Superficial Alignment Hypothesis.} A growing line of work asks how
+much instruction tuning really changes a base model. \citet{zhou2023lima}
+articulate the Superficial Alignment Hypothesis: a model's knowledge and
+capabilities are learned almost entirely during pretraining, and alignment
+mainly teaches it which subdistribution of formats and styles to surface. This
+view is supported by the strong performance of LIMA from a thousand curated
+examples, and by in-context alignment results suggesting that a few
+demonstrations recover much of the aligned behavior \citep{zhao2024iclsufficient,
+lin2023urial}. Other work pushes back: \citet{revisiting2024superficial} report
+cases where fine-tuning injects new behavior that few-shot prompting cannot
+reproduce, arguing the shift is not purely superficial. We do not take a side in
+this debate at the level of aggregate behavior. Instead, we operationalize
+``superficial'' \emph{per token}: if alignment were entirely a stylistic
+re-weighting, the \klt{} at each position would be predictable from cheap
+base-side context. Our \gbt{} predictor measures exactly how much of the shift is
+this superficial component, and our \emph{residual} isolates the part that is
+not.
+
+\para{Token-distribution-shift analysis.} Closest to us is URIAL
+\citep{lin2023urial}, which compares aligned and base models token by token. They
+introduce a base-rank diagnostic, ranking each token the aligned model emits
+within the base model's distribution, and find that the two models already agree
+on the top-1 token roughly $78\%$ of the time, that disagreement concentrates in
+a small set of stylistic and discourse markers (transition words, safety
+disclaimers, formatting), and that the shift decays sharply as a response
+proceeds. We reproduce all three findings at the distributional level: top-1
+agreement of $0.83$--$0.85$, mean per-token \klt{} of $0.21$--$0.24$ nats, and KL
+that decays with position (on \qwensmall{}, mean KL falls from $0.68$ at
+positions 0--4 to $0.12$ past position 40). \citet{lin2023urial} read off these
+shifted tokens by eye to argue alignment is superficial. Unlike URIAL, we do not
+stop at describing \emph{which} tokens shift on average; we fit an explicit
+predictor of the shift and ask what is \emph{left over} once the predictable,
+stylistic component is removed.
+
+\para{Logit-difference behavior signals.} A parallel thread treats the
+difference between aligned and base \emph{logits} as a usable signal rather than
+a nuisance. Emulated Fine-Tuning \citep{mitchell2023eft} formalizes the behavior
+delta $\log \pi_{\text{inst}} - \log \pi_{\text{base}}$ and shows it can be
+transplanted across model scales; proxy-tuning \citep{liu2024proxy} adds a small
+tuned model's logit difference to a large base model to steer it without training
+the large model. Contrastive-decoding methods exploit the same gap for
+generation quality and reasoning: \citet{li2023contrastivedecoding} and
+\citet{obrien2023contrastive} contrast a strong and a weak model, and DoLa
+\citep{chuang2023dola} contrasts early and late layers of a single model. These
+methods \emph{use} the logit difference to decode; they do not ask which parts of
+it are anticipatable. Unlike them, we treat the per-token divergence as a
+\emph{target to predict} from base-side context, so that the prediction error,
+not the difference itself, becomes the object of study.
+
+\para{Probability concentration under alignment.} \citet{yang2026branching}
+study alignment through the branching factor and argue that instruction tuning
+sharpens the next-token distribution, concentrating mass and surfacing
+low-entropy continuations that already existed latently in the base model. This
+gives a mechanistic reason why so much of the shift should be predictable from
+base-side uncertainty: where the base model is already confident, alignment has
+little room to move, and where it is uncertain, alignment often collapses onto a
+preferred continuation. Our feature-importance results bear this out, with base
+top-1 log-probability and base entropy dominating the predictor. But sharpening
+is a statement about the \emph{average} or \emph{typical} token; it does not say
+where alignment overrides the base model's preference in ways uncertainty cannot
+forecast. That override is precisely what our residual captures.
+
+\para{Transferable weight deltas and interpretability.} Finally, recent work
+shows the alignment weight delta is itself a portable object: \citet{shadowft2025}
+transfer a fine-tuning delta between models, treating it as a reusable patch.
+Interpretability tools such as LogitLens4LLMs \citep{logitlens2025} project
+internal states to the vocabulary to read where and how a model commits to a
+token. We work in the same spirit of reading the alignment difference directly in
+probability space, but at the granularity of individual response positions, and
+we use teacher forcing of the \emph{identical} chat-formatted sequence through
+both models so that the only thing that varies is the weights.
+
+\para{Positioning.} Across all of this work, the alignment shift is
+characterized by its \emph{average} or its \emph{predictable} structure: which
+tokens move, how much mass concentrates, how the delta transfers. None of it
+trains an explicit predictor of the per-token divergence and then studies the
+\emph{residual} of that predictor. That residual, the part of $\klt{}$ that a
+learned model genuinely cannot anticipate from simple base-side context, is our
+object of study, and we show it is neither noise nor the generic stylistic tokens
+everyone has already cataloged, but alignment-specific structure: safety
+refusals, discourse and structural pivots, and persona and identity injections.

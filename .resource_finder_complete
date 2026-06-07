@@ -1,0 +1,16 @@
+Resource finding phase completed successfully.
+Timestamp: 2026-06-07T21:28:14+00:00
+Topic: What's surprisingly different between base and instruct models?
+Papers downloaded: 11
+Datasets downloaded: 2 (just-eval-instruct, dolly-15k) + 6 base/instruct model pairs documented
+Repositories cloned: 4 (URIAL, proxy-tuning, LLMBranchingFactor, emulated-fine-tuning[stub])
+
+Deliverables:
+  - papers/ (11 PDFs) + papers/README.md + papers/pages/ chunks
+  - datasets/ (.gitignore, README w/ download instr, samples) 
+  - code/ (4 repos, .gitignore, README)
+  - literature_review.md
+  - resources.md
+
+Environment: isolated uv venv (.venv) + pyproject.toml; deps: arxiv, datasets, transformers-stack via uv pip.
+Note: paper-finder service was rate-limited (HTTP 500); used arXiv API fallback successfully.

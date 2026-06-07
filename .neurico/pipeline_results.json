@@ -1,13 +1,26 @@
 {
-  "success": false,
+  "success": true,
   "stages": {
     "resource_finder": {
-      "success": false,
-      "completion_marker": null,
-      "outputs": {},
+      "success": true,
+      "completion_marker": "/workspaces/base-vs-instruct-models-d95a-claude/.resource_finder_complete",
+      "outputs": {
+        "literature_review": "/workspaces/base-vs-instruct-models-d95a-claude/literature_review.md",
+        "resources_catalog": "/workspaces/base-vs-instruct-models-d95a-claude/resources.md",
+        "papers_dir": "/workspaces/base-vs-instruct-models-d95a-claude/papers",
+        "datasets_dir": "/workspaces/base-vs-instruct-models-d95a-claude/datasets",
+        "code_dir": "/workspaces/base-vs-instruct-models-d95a-claude/code"
+      },
       "log_file": "/workspaces/base-vs-instruct-models-d95a-claude/logs/resource_finder_claude.log",
       "transcript_file": "/workspaces/base-vs-instruct-models-d95a-claude/logs/resource_finder_claude_transcript.jsonl",
-      "elapsed_time": 0.7254083156585693
+      "elapsed_time": 632.5527837276459
+    },
+    "experiment_runner": {
+      "success": true,
+      "return_code": 0,
+      "elapsed_time": 3653.687947511673,
+      "log_file": "/workspaces/base-vs-instruct-models-d95a-claude/logs/execution_claude.log",
+      "transcript_file": "/workspaces/base-vs-instruct-models-d95a-claude/logs/execution_claude_transcript.jsonl"
     }
   },
   "work_dir": "/workspaces/base-vs-instruct-models-d95a-claude"

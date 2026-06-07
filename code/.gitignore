@@ -1,0 +1,5 @@
+# Cloned repos are large and have nested .git dirs; keep them local, out of git.
+# Reproduce with the git clone commands in code/README.md.
+*
+!.gitignore
+!README.md

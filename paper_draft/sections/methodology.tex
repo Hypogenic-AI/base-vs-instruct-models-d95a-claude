@@ -1,0 +1,46 @@
+\section{Methodology}\label{sec:method}
+
+Our goal is to localize, token by token, where an instruct model's next-token distribution departs from its base model, and to ask how much of that departure a learned predictor can anticipate from cheap base-side context. We first define the per-token divergence target (\secref{sec:method}), then the models and corpora, the divergence predictor and its baselines, the residual analysis protocol, and finally the details needed to reproduce every number.
+
+\subsection{Per-token divergence}
+
+\para{Shared-context teacher forcing.} For each instruction we first format it with the model's chat template and greedily decode a response of up to $80$ new tokens from the \emph{instruct} model. Let $o_{1:T}$ denote that response and let $c$ denote the chat-formatted prompt. We then teacher-force the \emph{identical} full sequence $(c, o_{1:T})$ through both the base and the instruct model. Crucially, both models see the same chat-formatted context $c$: we do not strip the chat template for the base model. This matters. Differences in formatting would otherwise confound the comparison; by holding the context fixed and identical, the only thing that varies between the two forward passes is the network weights. The per-position distributions we compare therefore isolate the \emph{weight delta} induced by instruction tuning, in the same spirit as the behavior delta $\log\pi_{\mathrm{inst}}-\log\pi_{\mathrm{base}}$ studied by \citet{mitchell2023eft} and the logit difference exploited by \citet{liu2024proxy}.
+
+\para{KL divergence.} At each response position $t\in\{1,\dots,T\}$ both models induce a next-token distribution over the full vocabulary $V$ given the shared prefix $(c,o_{<t})$. We write $\Pinst(\cdot\mid c,o_{<t})$ and $\Pbase(\cdot\mid c,o_{<t})$ for these distributions and define our primary divergence target as the forward KL,
+\begin{equation}
+\label{eq:kl}
+\mathrm{KL}_t \;=\; \klt \;=\; \sum_{v\in V} \Pinst(v\mid c,o_{<t})\,\log\frac{\Pinst(v\mid c,o_{<t})}{\Pbase(v\mid c,o_{<t})}\,,
+\end{equation}
+computed over the entire vocabulary (no top-$k$ truncation) in nats. We use the asymmetric forward direction deliberately: it weights mass where the \emph{instruct} model is confident, so $\mathrm{KL}_t$ is large exactly at the tokens the aligned model wants to emit but the base model would not.
+
+\para{Cross-checks.} KL is a distributional summary; to interpret what it captures we also record two scalar cross-checks at each position. The first is the base-side rank $\eta_t$ of the emitted token $o_t$ under $\Pbase$ ($\eta_t=1$ when the base model would itself have greedily emitted $o_t$). The second is the per-token log-probability delta $\log \Pinst(o_t\mid c,o_{<t}) - \log \Pbase(o_t\mid c,o_{<t})$, the pointwise version of the EFT/proxy-tuning behavior delta. Where $\mathrm{KL}_t$ is large we expect $\eta_t$ to climb and the log-probability delta to swing positive; these give an interpretable handle on individual high-divergence tokens.
+
+\subsection{Models and data}\label{ssec:data}
+
+\para{Model pairs.} We study three \qwen base/instruct pairs spanning more than an order of magnitude in scale: \qwensmall, \qwenmid, and \qwenbig, each as its released base and instruction-tuned checkpoint \citep{qwen2025}. Within each pair the base and instruct checkpoints share architecture, tokenizer, and vocabulary, so \eqref{eq:kl} is well defined and the comparison reduces cleanly to the weight difference. Spanning $0.5$B to $7$B lets us ask whether the structure we find is an artifact of small models or persists with scale.
+
+\para{Corpora.} We train the divergence predictor and analyze its residuals on \emph{disjoint} instruction sets, so that no instruction seen in fitting reappears in analysis. The predictor is fit on instructions from \dolly \citep{dolly2023}. All residual analysis is performed on \justeval \citep{lin2023urial}, the $1000$-instruction evaluation set introduced with URIAL, of which $200$ instructions carry a safety tag. The strict train/analyze split across two independently constructed corpora rules out leakage and means the structure we report in the residuals is not memorized from the fitting data. For each model pair we collect roughly $1200$--$1500$ instruction--response trajectories, each contributing up to $80$ per-token examples.
+
+\subsection{Divergence predictor and baselines}\label{ssec:predictor}
+
+\para{Base-side features.} The predictor is restricted to features computable from the \emph{base} model and the surface form of the emitted token alone---it never sees $\Pinst$. For each position $t$ we extract: the response position $t$; the base entropy $H(\Pbase(\cdot\mid c,o_{<t}))$; the base top-$1$ probability $\max_v \Pbase(v\mid c,o_{<t})$; the base log-probability of the emitted token $\log\Pbase(o_t\mid c,o_{<t})$; a set of token-class flags (\eg punctuation, whitespace/formatting, digits, alphabetic word pieces); and the token string length in characters. This feature set deliberately excludes anything that would require running the instruct model, so a low residual would mean alignment's effect at that token is anticipable from how the base model already behaves there.
+
+\para{Predictor.} Our divergence predictor, \gbt, is a \texttt{HistGradientBoostingRegressor} \citep{pedregosa2011scikit}---a histogram-based gradient-boosted tree ensemble in the LightGBM lineage \citep{ke2017lightgbm}---trained to regress $\mathrm{KL}_t$ on the base-side features above. We run up to $600$ boosting iterations with early stopping on a held-out validation split. We fit one \gbt per model pair on \dolly and report cross-corpus $R^2$ and Spearman $\rho$ between predicted and actual KL on \justeval.
+
+\para{Baselines.} To establish how much each individual cue explains on its own, we compare \gbt against three single-feature linear regressions: a \emph{position-only} baseline (KL from $t$ alone), an \emph{entropy-only} baseline (KL from base entropy), and a \emph{base-logprob-only} baseline (KL from $\log\Pbase(o_t)$). These isolate the contribution of position, base uncertainty, and base surprise respectively, and bracket the gap that the full nonlinear predictor closes.
+
+\subsection{Residual protocol}\label{ssec:residual}
+
+\para{Definition.} For every response token in \justeval we compute the \resid,
+\[
+r_t \;=\; \mathrm{KL}_t \;-\; \widehat{\mathrm{KL}}_t\,,
+\]
+the actual minus the \gbt-predicted divergence, using the predictor fit on \dolly. A positive $r_t$ marks a token where instruction tuning shifted the distribution \emph{more} than the base-side context anticipates: an alignment surprise. Because the predictor already absorbs the generic, anticipable component of the shift, the residual is where we look for structure.
+
+\para{Slicing.} We slice the residuals three ways: by instruction category (safety-tagged vs.\ regular), by token class, and by position bin. For each slice we ask whether residuals are centered away from zero and whether they differ across slices.
+
+\para{Statistics.} We test residual structure with nonparametric tests throughout, since residuals are heavy-tailed. We run a Kruskal--Wallis omnibus test across token classes to ask whether any class carries systematically different residuals. For the safety contrast we run a one-sided Mann--Whitney $U$ test of the hypothesis that safety-tagged residuals exceed regular ones, and report the rank-biserial correlation as a scale-free effect size alongside the mean residual per slice. We use $\alpha=0.05$ throughout; given the sample sizes we also report exact $p$-values.
+
+\subsection{Reproducibility}\label{ssec:repro}
+
+All decoding is greedy with a fixed seed of $42$, so trajectories are deterministic. Forward passes use \texttt{fp16}; for each pair we place the base model on \texttt{cuda:0} and the instruct model on \texttt{cuda:1} to compute both distributions for a position without reloading weights. Experiments run on $4\times$ RTX A6000 ($48$\,GB) GPUs. End-to-end wall-clock is roughly $35$ minutes for the \qwensmall and \qwenmid pairs together and a further $15$ minutes for \qwenbig. The software stack is Python $3.12$, \texttt{torch} $2.12$, \texttt{transformers} $5.10.2$, \texttt{scikit-learn} $1.9$, and \texttt{datasets} $5.0$.

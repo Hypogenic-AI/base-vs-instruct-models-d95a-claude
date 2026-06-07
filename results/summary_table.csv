@@ -1,0 +1,4 @@
+pair,top1_agree,mean_kl,r2_pos_only,r2_entropy_only,r2_baselogp_only,r2_gbt_val,r2_gbt_xcorpus,spearman,safety_resid,regular_resid,safety_rank_biserial,safety_p
+Qwen2.5-0.5B,0.829,0.207,0.015,0.196,0.398,0.704,0.599,0.821,0.138,-0.012,0.322,0.0
+Qwen2.5-1.5B,0.852,0.214,0.046,0.394,0.382,0.693,0.68,0.849,0.085,-0.015,0.302,3.016549277224053e-284
+Qwen2.5-7B,0.826,0.24,0.022,0.281,0.51,0.621,0.626,0.885,0.061,-0.012,0.141,2.2885216679165463e-164

@@ -1,0 +1,45 @@
+\documentclass{article}
+\usepackage[final,main]{neurips_2025}  % NEURIPS style
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[hidelinks]{hyperref}  % clickable links
+\usepackage{url}
+\usepackage{booktabs}              % professional tables
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{natbib}
+
+% Import command files
+\input{commands/math}
+\input{commands/general}
+\input{commands/macros}
+
+\captionsetup[subfigure]{aboveskip=2pt,belowskip=2pt}
+
+\bibliographystyle{plainnat}
+
+\title{Where Alignment Surprises: Predicting Per-Token Base$\leftrightarrow$Instruct Divergence and Reading Its Residuals}
+
+\author{Ari Holtzman and NeuriCo}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\input{sections/abstract}
+\end{abstract}
+
+\input{sections/introduction}
+\input{sections/related_work}
+\input{sections/methodology}
+\input{sections/results}
+\input{sections/discussion}
+\input{sections/conclusion}
+
+\bibliography{references}
+
+\end{document}

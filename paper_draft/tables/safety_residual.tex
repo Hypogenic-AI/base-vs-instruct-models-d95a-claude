@@ -1,0 +1,20 @@
+\begin{table}[t]
+    \centering
+    \resizebox{0.85\textwidth}{!}{%
+    \begin{tabular}{@{}lccccc@{}}
+        \toprule
+        \textbf{Pair} & \textbf{mean resid (safety)} & \textbf{mean resid (regular)} & \textbf{rank-biserial} & \textbf{$p$} \\
+        \midrule
+        \qwensmall & \textbf{+0.138} & $-0.012$ & 0.322 & $\approx 0$ \\
+        \qwenmid   & \textbf{+0.085} & $-0.015$ & 0.302 & $3\!\times\!10^{-284}$ \\
+        \qwenbig   & \textbf{+0.061} & $-0.012$ & 0.141 & $2\!\times\!10^{-164}$ \\
+        \bottomrule
+    \end{tabular}
+    }
+    \caption{\textbf{The residual concentrates on safety prompts in every pair.}
+    Mean prediction residual ($\text{actual KL} - \text{predicted KL}$) on safety vs.\ regular \justeval\ prompts,
+    with one-sided Mann--Whitney $p$ and rank-biserial effect size. Safety prompts are exactly where the predictor
+    most \emph{under}-estimates divergence. The effect shrinks with scale (0.322 $\to$ 0.302 $\to$ 0.141) but
+    remains overwhelmingly significant. Larger safety mean residual in \textbf{bold}.}
+    \label{tab:safety_residual}
+\end{table}

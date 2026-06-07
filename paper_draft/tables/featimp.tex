@@ -1,0 +1,27 @@
+\begin{table}[t]
+    \centering
+    \resizebox{0.7\textwidth}{!}{%
+    \begin{tabular}{@{}lccc@{}}
+        \toprule
+        \textbf{Feature} & \qwensmall & \qwenmid & \qwenbig \\
+        \midrule
+        \texttt{base\_tok\_logprob} & \textbf{0.603} & 0.399 & \textbf{0.609} \\
+        \texttt{base\_entropy}      & 0.496 & \textbf{0.657} & 0.139 \\
+        \texttt{base\_top1\_prob}   & 0.273 & 0.139 & 0.427 \\
+        \texttt{pos}                & 0.076 & 0.077 & 0.033 \\
+        \texttt{tok\_len}           & 0.012 & 0.016 & 0.017 \\
+        \texttt{is\_punct}          & 0.011 & 0.002 & 0.026 \\
+        \texttt{is\_stylistic}      & 0.010 & 0.015 & 0.003 \\
+        \texttt{is\_wordlead}       & 0.004 & 0.015 & 0.006 \\
+        \texttt{is\_number}         & 0.001 & 0.000 & 0.001 \\
+        \bottomrule
+    \end{tabular}
+    }
+    \caption{\textbf{Predictive structure is base-model uncertainty, not position or lexical class.}
+    Gradient-boosting feature importance (gain) for the \gbt\ divergence predictor across all three pairs.
+    Base token surprise (\texttt{base\_tok\_logprob}) and base entropy (\texttt{base\_entropy}) dominate;
+    response position (\texttt{pos}) and every stylistic/lexical flag contribute little. This refines URIAL's
+    ``KL decays with position'': the decay is mostly \emph{mediated by entropy decay}, not position per se.
+    Largest per-column value in \textbf{bold}.}
+    \label{tab:featimp}
+\end{table}
