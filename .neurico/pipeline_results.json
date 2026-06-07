@@ -1,0 +1,14 @@
+{
+  "success": false,
+  "stages": {
+    "resource_finder": {
+      "success": false,
+      "completion_marker": null,
+      "outputs": {},
+      "log_file": "/workspaces/base-vs-instruct-models-d95a-claude/logs/resource_finder_claude.log",
+      "transcript_file": "/workspaces/base-vs-instruct-models-d95a-claude/logs/resource_finder_claude_transcript.jsonl",
+      "elapsed_time": 0.7254083156585693
+    }
+  },
+  "work_dir": "/workspaces/base-vs-instruct-models-d95a-claude"
+}
