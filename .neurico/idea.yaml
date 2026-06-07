@@ -1,0 +1,27 @@
+idea:
+  title: What's surprisingly different between base and instruct models?
+  domain: artificial_intelligence
+  hypothesis: 'Take a base and an instruct model. Look at the divergence between their
+    distributions, token by token. Train a model to predict the KL (or whatever) between
+    them at every token. Then look at places where the
+
+    divergence predictor
+
+    is wrong. I think that''s where the interesting stuff will be.'
+  background:
+    description: 'Take a base and an instruct model. Look at the divergence between
+      their distributions, token by token. Train a model to predict the KL (or whatever)
+      between them at every token. Then look at places where the
+
+      divergence predictor
+
+      is wrong. I think that''s where the interesting stuff will be.'
+  metadata:
+    source: IdeaHub
+    source_url: https://hypogenic.ai/ideahub/idea/WKCcIy2RGSNxGF87KZip
+    author: Ari Holtzman
+    idea_id: what_s_surprisingly_different__20260607_211208_446ff9cc
+    created_at: '2026-06-07T21:12:08.079623'
+    status: submitted
+    github_repo_name: base-vs-instruct-models-d95a-claude
+    github_repo_url: https://github.com/Hypogenic-AI/base-vs-instruct-models-d95a-claude
